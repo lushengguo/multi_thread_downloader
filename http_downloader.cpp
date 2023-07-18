@@ -1,13 +1,14 @@
 #include "http_downloader.h"
 #include "log.h"
 #include <curl/curl.h>
+#include <functional>
 #include <iostream>
 #include <mutex>
 #include <regex>
 #include <string.h>
 
-HttpDownloader::HttpDownloader(const char *request_path)
-    : request_path_(request_path)
+HttpDownloader::HttpDownloader(const char *request_path, Progress *progress)
+    : request_path_(request_path), progress_(progress)
 {
 }
 
@@ -19,15 +20,15 @@ struct WriteData
 };
 
 size_t WriteCallback(void *contents, size_t size, size_t nmemb,
-                     WriteData *output)
+                     WriteData *writer)
 {
     size_t downloaded_byte = size * nmemb;
     uint8_t *buffer = static_cast<uint8_t *>(contents);
-    memcpy(output->buffer, buffer, downloaded_byte);
-    if (output->progress_printer)
-        output->progress_printer(downloaded_byte);
-    output->downloaded_byte += downloaded_byte;
-    output->buffer += downloaded_byte;
+    memcpy(writer->buffer, buffer, downloaded_byte);
+    if (writer->progress_printer)
+        writer->progress_printer(downloaded_byte);
+    writer->downloaded_byte += downloaded_byte;
+    writer->buffer += downloaded_byte;
     return downloaded_byte;
 }
 
@@ -44,6 +45,11 @@ int HttpDownloader::download(size_t bytes_from, size_t bytes_download,
     }
 
     WriteData write_data{buffer, 0};
+    if (progress_)
+    {
+        write_data.progress_printer =
+            std::bind(&Progress::feed, progress_, std::placeholders::_1);
+    }
     curl_easy_setopt(curl, CURLOPT_URL, request_path_);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &write_data);
@@ -68,10 +74,10 @@ int HttpDownloader::download(size_t bytes_from, size_t bytes_download,
 }
 
 size_t HeaderCallback(void *contents, size_t size, size_t nmemb,
-                      std::string *output)
+                      std::string *headers)
 {
     size_t totalSize = size * nmemb;
-    output->append(static_cast<char *>(contents), totalSize);
+    headers->append(static_cast<char *>(contents), totalSize);
     return totalSize;
 }
 

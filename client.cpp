@@ -27,9 +27,10 @@ bool verify_md5(const std::vector<uint8_t> &message, const std::string &hash)
 
 struct DownloadTaskArg
 {
-    size_t download_begin_offset;
-    size_t download_end_offset;
-    uint8_t *buffer;
+    size_t download_begin_offset_;
+    size_t download_end_offset_;
+    uint8_t *buffer_;
+    Progress &progress_;
 
     static constexpr size_t retry_time = 3;
 
@@ -37,7 +38,6 @@ struct DownloadTaskArg
     static size_t file_size;
     static std::string resource_path;
     static std::atomic_bool error;
-    static std::atomic_size_t progress;
 };
 
 // 极限情况下，每个线程分到的下载数量都很大，做一个单次下载限制
@@ -46,14 +46,13 @@ size_t DownloadTaskArg::fixed_block_size = 10 * 1024 * 1024;
 size_t DownloadTaskArg::file_size = 0;
 std::string DownloadTaskArg::resource_path("");
 std::atomic_bool DownloadTaskArg::error(false);
-std::atomic_size_t DownloadTaskArg::progress(0);
 
 void download_task(DownloadTaskArg arg)
 {
-    HttpDownloader downloader(arg.resource_path.c_str());
-    size_t begin = arg.download_begin_offset;
-    size_t end = arg.download_end_offset;
-    uint8_t *buffer = arg.buffer;
+    HttpDownloader downloader(arg.resource_path.c_str(), &arg.progress_);
+    size_t begin = arg.download_begin_offset_;
+    size_t end = arg.download_end_offset_;
+    uint8_t *buffer = arg.buffer_;
 
     for (;;)
     {
@@ -70,9 +69,6 @@ void download_task(DownloadTaskArg arg)
             {
                 begin += downloaded_bytes;
                 buffer += downloaded_bytes;
-                size_t progress_old = arg.progress.fetch_add(
-                    downloaded_bytes, std::memory_order_release);
-
                 if (begin == end)
                     return;
 
@@ -156,7 +152,7 @@ int main()
     std::string resource_path = resource_list["1MB"].second;
     std::string md5 = resource_list["1MB"].first;
 
-    HttpDownloader downloader(resource_path.c_str());
+    HttpDownloader downloader(resource_path.c_str(), nullptr);
     const int file_size = downloader.get_file_size();
     if (file_size <= 0)
     {
@@ -176,6 +172,10 @@ int main()
 
     DownloadTaskArg::file_size = file_size;
     DownloadTaskArg::resource_path = resource_path;
+    Progress global_progress(
+        file_size, std::make_shared<std::atomic_size_t>(0),
+        std::make_shared<std::atomic_size_t>(0),
+        std::make_shared<std::atomic<time_t>>(time(nullptr)));
 
     std::vector<std::thread> thread_pool;
     for (size_t i = 0; i < thread_num; i++)
@@ -183,8 +183,9 @@ int main()
         size_t begin = i * average_task_load;
         size_t end = std::min<size_t>(begin + average_task_load, file_size);
         uint8_t *buffer = file.data() + begin;
-        thread_pool.emplace_back(download_task,
-                                 DownloadTaskArg{begin, end, buffer});
+        thread_pool.emplace_back(
+            download_task,
+            DownloadTaskArg{begin, end, buffer, global_progress});
     }
 
     for (auto &&thread : thread_pool)
