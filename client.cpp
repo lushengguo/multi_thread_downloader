@@ -5,6 +5,7 @@
 #include <cryptopp/md5.h>
 #include <iomanip>
 #include <iostream>
+#include <math.h>
 #include <mutex>
 #include <string_view>
 #include <strings.h>
@@ -49,43 +50,45 @@ std::atomic_size_t DownloadTaskArg::progress(0);
 void download_task(DownloadTaskArg arg)
 {
     HttpDownloader downloader(arg.resource_path.c_str());
-
     size_t begin = arg.download_begin_offset;
     size_t end = arg.download_end_offset;
+    uint8_t *buffer = arg.buffer;
 
-    while (true)
+    for (;;)
     {
-        if (arg.error.load(std::memory_order_acquire) || begin == end)
-            return;
-
-        size_t retry_time = arg.retry_time;
-        while (retry_time--)
+        for (size_t retry = arg.retry_time; retry > 0; retry--)
         {
-            size_t download_bytes = std::min(arg.fixed_block_size, end - begin);
-            int downloaded_bytes =
-                downloader.download(begin, download_bytes, arg.buffer + begin);
-
             if (arg.error.load(std::memory_order_acquire))
                 return;
+
+            size_t download_bytes = std::min(arg.fixed_block_size, end - begin);
+            int downloaded_bytes =
+                downloader.download(begin, download_bytes, buffer);
 
             if (downloaded_bytes == download_bytes)
             {
                 begin += downloaded_bytes;
-                size_t prev = arg.progress.fetch_add(downloaded_bytes,
-                                                     std::memory_order_release);
+                buffer += downloaded_bytes;
+                size_t progress_old = arg.progress.fetch_add(
+                    downloaded_bytes, std::memory_order_release);
 
                 Logger("download progress {:2}%",
-                       ((double)(prev + downloaded_bytes) / arg.file_size) *
+                       ((double)(progress_old + downloaded_bytes) /
+                        arg.file_size) *
                            100);
+
+                if (begin == end)
+                    return;
+
                 break;
             }
-            else if (retry_time == 0)
+            else if (retry == 0)
             {
                 arg.error.store(true, std::memory_order_release);
                 Logger("download failed, quit now ... ");
                 return;
             }
-            else
+            else // retry download
             {
                 continue;
             }
@@ -154,8 +157,8 @@ std::unordered_map<std::string, std::pair<std::string, std::string>>
 // 默认内存够大，如果不够大还要手动实现一份md5分段计算
 int main()
 {
-    std::string resource_path = resource_list["1GB"].second;
-    std::string md5 = resource_list["1GB"].first;
+    std::string resource_path = resource_list["1MB"].second;
+    std::string md5 = resource_list["1MB"].first;
 
     HttpDownloader downloader(resource_path.c_str());
     const int file_size = downloader.get_file_size();
@@ -168,11 +171,14 @@ int main()
     size_t thread_num = std::min<size_t>(
         std::thread::hardware_concurrency(),
         std::max<size_t>(1, file_size / DownloadTaskArg::fixed_block_size));
+    thread_num = 2;
     Logger("file size is {}, use {} threads to accerlate download", file_size,
            thread_num);
 
     const size_t average_task_load = file_size / thread_num;
     std::vector<uint8_t> file(file_size, 0);
+    Logger("vector size={}, vector end={}", file.size(),
+           (size_t)file.data() + file.size());
 
     DownloadTaskArg::file_size = file_size;
     DownloadTaskArg::resource_path = resource_path;
