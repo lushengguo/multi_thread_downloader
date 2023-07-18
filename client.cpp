@@ -1,4 +1,4 @@
-#include "downloader.h"
+#include "http_downloader.h"
 #include "log.h"
 #include <atomic>
 #include <cryptopp/hex.h>
@@ -71,11 +71,6 @@ void download_task(DownloadTaskArg arg)
                 buffer += downloaded_bytes;
                 size_t progress_old = arg.progress.fetch_add(
                     downloaded_bytes, std::memory_order_release);
-
-                Logger("download progress {:2}%",
-                       ((double)(progress_old + downloaded_bytes) /
-                        arg.file_size) *
-                           100);
 
                 if (begin == end)
                     return;
@@ -177,8 +172,6 @@ int main()
 
     const size_t average_task_load = file_size / thread_num;
     std::vector<uint8_t> file(file_size, 0);
-    Logger("vector size={}, vector end={}", file.size(),
-           (size_t)file.data() + file.size());
 
     DownloadTaskArg::file_size = file_size;
     DownloadTaskArg::resource_path = resource_path;

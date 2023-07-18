@@ -15,6 +15,7 @@ struct WriteData
 {
     uint8_t *buffer;
     size_t downloaded_byte = 0;
+    std::function<void(size_t)> progress_printer;
 };
 
 size_t WriteCallback(void *contents, size_t size, size_t nmemb,
@@ -22,10 +23,9 @@ size_t WriteCallback(void *contents, size_t size, size_t nmemb,
 {
     size_t downloaded_byte = size * nmemb;
     uint8_t *buffer = static_cast<uint8_t *>(contents);
-    Logger("in thread {} already downloaded {} bytes and commit {} to {}",
-    gettid(),
-           output->downloaded_byte, downloaded_byte, (size_t)output->buffer);
     memcpy(output->buffer, buffer, downloaded_byte);
+    if (output->progress_printer)
+        output->progress_printer(downloaded_byte);
     output->downloaded_byte += downloaded_byte;
     output->buffer += downloaded_byte;
     return downloaded_byte;

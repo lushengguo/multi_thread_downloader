@@ -6,12 +6,13 @@
 
 extern std::mutex log_mutex;
 
-template <typename... Args>
+template <typename... Args, bool newline = true>
 void Logger(fmt::format_string<Args...> &&fmt, Args &&...args)
 {
     std::unique_lock<std::mutex> lock(log_mutex);
     // std::cout << fmt::format(std::move(fmt), std::forward<Args>(args)...) <<
     // std::endl;
     fmt::print(std::move(fmt), std::forward<Args>(args)...);
-    std::cout << std::endl;
+    if (newline)
+        std::cout << std::endl;
 }

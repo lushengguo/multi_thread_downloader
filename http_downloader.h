@@ -6,9 +6,18 @@
 
 struct Progress
 {
+  public:
+    void feed(size_t bytes)
+    {
+        size_t progress_old = cur->fetch_add(bytes, std::memory_order_seq_cst);
+        size_t progress = progress_old + bytes;
+    }
+
+  private:
     const size_t total;
+
     std::shared_ptr<std::atomic_size_t> cur;
-    double prev_downloaded_percentage;
+    std::shared_ptr<std::atomic_size_t> percentage;
 };
 
 class HttpDownloader : Downloader
