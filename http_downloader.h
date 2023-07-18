@@ -30,7 +30,6 @@ struct Progress
             fmt::print("downloaded {:.2f}%, speed {} b/s\n",
                        double(p) / total_ * 100, p - po);
 
-            // fmt::print("progress={}, total={}\n", p, total_);
             progress_old_->store(p);
         }
     }

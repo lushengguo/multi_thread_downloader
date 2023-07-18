@@ -1,3 +1,5 @@
+#define CRYPTOPP_ENABLE_NAMESPACE_WEAK 1
+
 #include "http_downloader.h"
 #include "log.h"
 #include <atomic>
@@ -12,9 +14,10 @@
 #include <thread>
 #include <unordered_map>
 
+
 bool verify_md5(const std::vector<uint8_t> &message, const std::string &hash)
 {
-    CryptoPP::MD5 md5;
+    CryptoPP::Weak::MD5 md5;
     std::string calculatedHash;
     CryptoPP::StringSource calc(
         message.data(), message.size(), true,
@@ -65,7 +68,7 @@ void download_task(DownloadTaskArg arg)
             int downloaded_bytes =
                 downloader.download(begin, download_bytes, buffer);
 
-            if (downloaded_bytes == download_bytes)
+            if (size_t(downloaded_bytes) == download_bytes)
             {
                 begin += downloaded_bytes;
                 buffer += downloaded_bytes;
