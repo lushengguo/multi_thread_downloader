@@ -10,6 +10,7 @@
 #include <string_view>
 #include <strings.h>
 #include <thread>
+#include <unordered_map>
 
 bool verify_md5(const std::vector<uint8_t> &message, const std::string &hash)
 {
@@ -183,7 +184,7 @@ int main()
     DownloadTaskArg::file_size = file_size;
     DownloadTaskArg::resource_path = resource_path;
 
-    std::vector<std::jthread> thread_pool;
+    std::vector<std::thread> thread_pool;
     for (size_t i = 0; i < thread_num; i++)
     {
         size_t begin = i * average_task_load;
