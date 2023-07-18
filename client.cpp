@@ -168,7 +168,6 @@ int main()
     size_t thread_num = std::min<size_t>(
         std::thread::hardware_concurrency(),
         std::max<size_t>(1, file_size / DownloadTaskArg::fixed_block_size));
-    thread_num = 2;
     Logger("file size is {}, use {} threads to accerlate download", file_size,
            thread_num);
 
