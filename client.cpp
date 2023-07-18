@@ -1,4 +1,5 @@
 #define CRYPTOPP_ENABLE_NAMESPACE_WEAK 1
+#define ENABLE_DEBUG_LOG 1
 
 #include "http_downloader.h"
 #include "log.h"
@@ -13,6 +14,7 @@
 #include <strings.h>
 #include <thread>
 #include <unordered_map>
+#include <curl/curl.h>
 
 
 bool verify_md5(const std::vector<uint8_t> &message, const std::string &hash)
@@ -30,6 +32,19 @@ bool verify_md5(const std::vector<uint8_t> &message, const std::string &hash)
 
 struct DownloadTaskArg
 {
+    DownloadTaskArg(size_t download_begin_offset,
+        size_t download_end_offset,
+        uint8_t *buffer,
+        Progress &progress)
+        :download_begin_offset_(download_begin_offset),
+        download_end_offset_(download_end_offset),
+        buffer_(buffer),
+        progress_(progress)
+    {
+        taskIdMax++;
+        taskId_ = taskIdMax;
+    }
+
     size_t download_begin_offset_;
     size_t download_end_offset_;
     uint8_t *buffer_;
@@ -41,6 +56,19 @@ struct DownloadTaskArg
     static size_t file_size;
     static std::string resource_path;
     static std::atomic_bool error;
+    size_t taskId_;
+    static size_t taskIdMax;
+};
+
+
+struct CurlGlobalResourceGuard
+{
+    CurlGlobalResourceGuard() {
+        curl_global_init(CURL_GLOBAL_ALL);
+    }
+    ~CurlGlobalResourceGuard() {
+         curl_global_cleanup();
+    }
 };
 
 // 极限情况下，每个线程分到的下载数量都很大，做一个单次下载限制
@@ -49,6 +77,8 @@ size_t DownloadTaskArg::fixed_block_size = 10 * 1024 * 1024;
 size_t DownloadTaskArg::file_size = 0;
 std::string DownloadTaskArg::resource_path("");
 std::atomic_bool DownloadTaskArg::error(false);
+size_t DownloadTaskArg::taskIdMax = 0;
+
 
 void download_task(DownloadTaskArg arg)
 {
@@ -57,17 +87,54 @@ void download_task(DownloadTaskArg arg)
     size_t end = arg.download_end_offset_;
     uint8_t *buffer = arg.buffer_;
 
+    struct DownloadTaskGuard
+    {
+        DownloadTaskGuard(size_t taskId, size_t targetDownloadSize)
+            :taskId_(taskId)
+            ,targetDownloadSize_(targetDownloadSize)
+            ,hasDownloadSize_(0)
+        {
+
+        }
+        ~DownloadTaskGuard()
+        {
+        #ifdef ENABLE_DEBUG_LOG
+            Logger("[DownloadTaskGuard] finish!! taskId:{}, targetDownloadSize:{}, hasDownloadSize:{}", 
+                taskId_, targetDownloadSize_, hasDownloadSize_);
+        #endif // ENABLE_DEBUG_LOG
+            
+        }
+        void AddDownloadedSize(size_t sz)
+        {
+            hasDownloadSize_ += sz;
+        }
+        size_t targetDownloadSize_;
+        size_t hasDownloadSize_;
+        size_t taskId_;
+    };
+    
     for (;;)
     {
         for (size_t retry = arg.retry_time; retry > 0; retry--)
         {
-            if (arg.error.load(std::memory_order_acquire))
-                return;
-
             size_t download_bytes = std::min(arg.fixed_block_size, end - begin);
+
+            size_t hasRetryTimes =  arg.retry_time - retry;
+#ifdef ENABLE_DEBUG_LOG
+            Logger("download_task, taskId:{}, hasRetryTimes:{}", arg.taskId_, hasRetryTimes);
+#endif // ENABLE_DEBUG_LOG
+            DownloadTaskGuard guard(arg.taskId_, download_bytes);
+            if (arg.error.load(std::memory_order_acquire))
+            {
+                Logger("download_task, taskId:{}, error occurs!!!", arg.taskId_);
+                return;
+            }
             int downloaded_bytes =
                 downloader.download(begin, download_bytes, buffer);
-
+            guard.AddDownloadedSize(downloaded_bytes);
+#ifdef ENABLE_DEBUG_LOG
+            Logger("download_task, taskId:{}, download_bytes:{} ,has downloaded:{} ", arg.taskId_, download_bytes, downloaded_bytes);
+#endif // ENABLE_DEBUG_LOG
             if (size_t(downloaded_bytes) == download_bytes)
             {
                 begin += downloaded_bytes;
@@ -152,6 +219,7 @@ std::unordered_map<std::string, std::pair<std::string, std::string>>
 // 默认内存够大，如果不够大还要手动实现一份md5分段计算
 int main()
 {
+    CurlGlobalResourceGuard guard;
     std::string resource_path = resource_list["1MB"].second;
     std::string md5 = resource_list["1MB"].first;
 
