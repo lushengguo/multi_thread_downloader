@@ -114,7 +114,7 @@ bool Downloader::download(const char *resource_path,
     return !error->load(std::memory_order_release);
 }
 
-static std::string beautify_speed(size_t bytes_per_second)
+std::string beautify_speed(size_t bytes_per_second)
 {
     static std::vector<std::pair<size_t, std::string>> rules{
         {10, "kb/s"}, {20, "mb/s"}, {30, "gb/s"}};

@@ -79,4 +79,6 @@ class Downloader
     SupportProtocol protocol_;
 };
 
+std::string beautify_speed(size_t bytes_per_second);
+
 #endif

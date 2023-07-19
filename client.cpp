@@ -1,10 +1,11 @@
 #include "downloader.h"
 #include "log.h"
 #include "md5.h"
+#include <chrono>
+#include <cstddef>
+#include <curl/curl.h>
 #include <string>
 #include <unordered_map>
-#include <curl/curl.h>
-
 struct CurlGlobalResourceGuard
 {
     CurlGlobalResourceGuard() {
@@ -73,13 +74,50 @@ std::unordered_map<std::string, std::pair<std::string, std::string>>
           "http://speedtest.tele2.net/1000GB.zip"}},
 };
 
+using time_point = std::chrono::time_point<std::chrono::system_clock>;
+
+std::string average_download_speed_illustrate(time_point begin, time_point end,
+                                              size_t bytes)
+{
+    auto ms_begin =
+        std::chrono::time_point_cast<std::chrono::milliseconds>(begin);
+    auto ms_end = std::chrono::time_point_cast<std::chrono::milliseconds>(end);
+    auto ms_duration =
+        ms_end.time_since_epoch().count() - ms_begin.time_since_epoch().count();
+    auto ms_duration2 = ms_duration;
+
+    std::string r;
+    size_t hours = ms_duration / (1000 * 60 * 60);
+    ms_duration %= (1000 * 60 * 60);
+    if (hours > 0)
+         r.append(std::to_string(hours)).append("h");
+
+    size_t minutes = ms_duration / (1000 * 60);
+    ms_duration %= (1000 * 60);
+    if (minutes > 0 || not r.empty())
+         r.append(std::to_string(minutes)).append("m");
+
+    size_t seconds = ms_duration / 1000;
+    if (seconds > 0 || not r.empty())
+         r.append(std::to_string(seconds)).append("s");
+
+    ms_duration %= 1000;
+    r.append(std::to_string(ms_duration)).append("ms");
+
+    return fmt::format(
+        "cost {}, average speed={}", r,
+        beautify_speed(double(bytes) / (double(ms_duration2) / 1000)));
+}
+
 // 默认内存够大，如果不够大还要手动实现一份md5分段计算
 int main()
 {
     CurlGlobalResourceGuard guard;
-    std::string resource_path = resource_list["1MB"].second;
-    std::string md5 = resource_list["1MB"].first;
+    auto resource = resource_list["20MB"];
+    std::string resource_path = resource.second;
+    std::string md5 = resource.first;
     std::vector<uint8_t> data;
+    time_point start = std::chrono::system_clock::now();
 
     Downloader downloader(SupportProtocol::Http);
     bool r = downloader.download(resource_path.c_str(), data);
@@ -89,7 +127,9 @@ int main()
         bool success = md5::verify(data, md5);
         if (success)
         {
-            Logger("download {} bytes success :)", data.size());
+            Logger("download {} bytes success {} :)", data.size(),
+                   average_download_speed_illustrate(
+                       start, std::chrono::system_clock::now(), data.size()));
             return 0;
         }
     }
