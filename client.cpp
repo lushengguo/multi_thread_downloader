@@ -113,7 +113,7 @@ std::string average_download_speed_illustrate(time_point begin, time_point end,
 int main()
 {
     CurlGlobalResourceGuard guard;
-    auto resource = resource_list["500MB"];
+    auto resource = resource_list["10MB"];
     std::string resource_path = resource.second;
     std::string md5 = resource.first;
     std::vector<uint8_t> data;
