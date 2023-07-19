@@ -71,7 +71,7 @@ bool Downloader::download(const char *resource_path,
         return false;
     }
 
-    if (thread_num != 0)
+    if (thread_num == 0)
         thread_num = std::min<size_t>(
             std::thread::hardware_concurrency(),
             std::max<size_t>(1,
