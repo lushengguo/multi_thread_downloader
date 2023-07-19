@@ -22,6 +22,11 @@ void Downloader::download_task(DownloadTaskArg arg)
     size_t end = arg.download_end_offset_;
     uint8_t *buffer = arg.buffer_;
 
+    // 这里每个线程分到的任务量几乎一致的（除了最后一个线程可能差几byte）
+    // 实测因为网络原因或者资源原因，可能有几个线程收到的请求比较慢，下载文件比较大的时候最后可能只剩1~2个线程在拖后腿了
+    // 这里其实可以设计成一个全局的 atomic_size_t
+    // 每个线程下载的时候去fetch_add(fixed_block_size)
+    // 这样能做到相对较好的负载均衡
     for (;;)
     {
         for (size_t retry = arg.retry_time_; retry > 0; retry--)
@@ -142,8 +147,8 @@ void ProgressPrinter::feed(size_t bytes)
     {
         p += bytes;
         size_t po = progress_old_->load();
-        fmt::print("downloaded {:.2f}%, speed {}\n", double(p) / total_ * 100,
-                   beautify_speed(p - po));
+        fmt::print("[thread {}] total downloaded {:.2f}%, speed {}\n", gettid(),
+                   double(p) / total_ * 100, beautify_speed(p - po));
 
         progress_old_->store(p);
     }
