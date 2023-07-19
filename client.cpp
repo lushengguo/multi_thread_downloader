@@ -3,6 +3,17 @@
 #include "md5.h"
 #include <string>
 #include <unordered_map>
+#include <curl/curl.h>
+
+struct CurlGlobalResourceGuard
+{
+    CurlGlobalResourceGuard() {
+        curl_global_init(CURL_GLOBAL_ALL);
+    }
+    ~CurlGlobalResourceGuard() {
+         curl_global_cleanup();
+    }
+};
 
 std::unordered_map<std::string, std::pair<std::string, std::string>>
     resource_list = {
@@ -65,6 +76,7 @@ std::unordered_map<std::string, std::pair<std::string, std::string>>
 // 默认内存够大，如果不够大还要手动实现一份md5分段计算
 int main()
 {
+    CurlGlobalResourceGuard guard;
     std::string resource_path = resource_list["1MB"].second;
     std::string md5 = resource_list["1MB"].first;
     std::vector<uint8_t> data;

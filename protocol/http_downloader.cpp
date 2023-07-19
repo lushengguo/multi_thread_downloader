@@ -38,8 +38,6 @@ size_t WriteCallback(void *contents, size_t size, size_t nmemb,
 int HttpDownloader::download(size_t bytes_from, size_t bytes_download,
                              uint8_t *buffer)
 {
-    curl_global_init(CURL_GLOBAL_ALL);
-
     CURL *curl = curl_easy_init();
     if (!curl)
     {
@@ -55,6 +53,11 @@ int HttpDownloader::download(size_t bytes_from, size_t bytes_download,
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &write_data);
 
+    //指定下载的范围
+    /*
+    HTTP协议中的Range头字段指定了客户端请求的资源的一个或多个子范围。这使得客户端可以请求部分资源而不是整个资源。Range头字段的语法如下：
+    Range: bytes=start-end
+    */
     struct curl_slist *headers = nullptr;
     std::string range_header = fmt::format("Range: bytes={}-{}", bytes_from,
                                            bytes_from + bytes_download - 1);
@@ -68,8 +71,9 @@ int HttpDownloader::download(size_t bytes_from, size_t bytes_download,
         Logger("Failed to perform request: {}", curl_easy_strerror(res));
     }
 
+    
+    curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
-    curl_global_cleanup();
 
     return write_data.downloaded_byte;
 }
@@ -84,9 +88,8 @@ size_t HeaderCallback(void *contents, size_t size, size_t nmemb,
 
 size_t HttpDownloader::get_file_size()
 {
+    Logger("HttpDownloader::get_file_size!!");
     size_t file_size = 0;
-
-    curl_global_init(CURL_GLOBAL_ALL);
 
     CURL *curl = curl_easy_init();
     if (!curl)
@@ -115,7 +118,6 @@ size_t HttpDownloader::get_file_size()
     }
 
     curl_easy_cleanup(curl);
-    curl_global_cleanup();
 
     return file_size;
 }
