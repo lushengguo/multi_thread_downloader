@@ -1,4 +1,6 @@
 #pragma once
+#ifndef LOG_HPP
+#define LOG_HPP
 
 #include <fmt/format.h>
 #include <iostream>
@@ -16,3 +18,5 @@ void Logger(fmt::format_string<Args...> &&fmt, Args &&...args)
     if (newline)
         std::cout << std::endl;
 }
+
+#endif

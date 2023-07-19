@@ -1,95 +1,8 @@
-#define CRYPTOPP_ENABLE_NAMESPACE_WEAK 1
-
-#include "http_downloader.h"
+#include "downloader.h"
 #include "log.h"
-#include <atomic>
-#include <cryptopp/hex.h>
-#include <cryptopp/md5.h>
-#include <iomanip>
-#include <iostream>
-#include <math.h>
-#include <mutex>
-#include <string_view>
-#include <strings.h>
-#include <thread>
+#include "md5.h"
+#include <string>
 #include <unordered_map>
-
-
-bool verify_md5(const std::vector<uint8_t> &message, const std::string &hash)
-{
-    CryptoPP::Weak::MD5 md5;
-    std::string calculatedHash;
-    CryptoPP::StringSource calc(
-        message.data(), message.size(), true,
-        new CryptoPP::HashFilter(
-            md5, new CryptoPP::HexEncoder(
-                     new CryptoPP::StringSink(calculatedHash))));
-
-    return strcasecmp(calculatedHash.c_str(), hash.c_str()) == 0;
-}
-
-struct DownloadTaskArg
-{
-    size_t download_begin_offset_;
-    size_t download_end_offset_;
-    uint8_t *buffer_;
-    Progress &progress_;
-
-    static constexpr size_t retry_time = 3;
-
-    static size_t fixed_block_size;
-    static size_t file_size;
-    static std::string resource_path;
-    static std::atomic_bool error;
-};
-
-// 极限情况下，每个线程分到的下载数量都很大，做一个单次下载限制
-// 主要作用在于如果一部分文件一直失败的话，整个下载应该及时停止
-size_t DownloadTaskArg::fixed_block_size = 10 * 1024 * 1024;
-size_t DownloadTaskArg::file_size = 0;
-std::string DownloadTaskArg::resource_path("");
-std::atomic_bool DownloadTaskArg::error(false);
-
-void download_task(DownloadTaskArg arg)
-{
-    HttpDownloader downloader(arg.resource_path.c_str(), &arg.progress_);
-    size_t begin = arg.download_begin_offset_;
-    size_t end = arg.download_end_offset_;
-    uint8_t *buffer = arg.buffer_;
-
-    for (;;)
-    {
-        for (size_t retry = arg.retry_time; retry > 0; retry--)
-        {
-            if (arg.error.load(std::memory_order_acquire))
-                return;
-
-            size_t download_bytes = std::min(arg.fixed_block_size, end - begin);
-            int downloaded_bytes =
-                downloader.download(begin, download_bytes, buffer);
-
-            if (size_t(downloaded_bytes) == download_bytes)
-            {
-                begin += downloaded_bytes;
-                buffer += downloaded_bytes;
-                if (begin == end)
-                    return;
-
-                break;
-            }
-            else if (retry == 0)
-            {
-                arg.error.store(true, std::memory_order_release);
-                Logger("download failed, quit now ... ");
-                return;
-            }
-            else // retry download
-            {
-                continue;
-            }
-        }
-    }
-}
 
 std::unordered_map<std::string, std::pair<std::string, std::string>>
     resource_list = {
@@ -154,57 +67,21 @@ int main()
 {
     std::string resource_path = resource_list["1MB"].second;
     std::string md5 = resource_list["1MB"].first;
+    std::vector<uint8_t> data;
 
-    HttpDownloader downloader(resource_path.c_str(), nullptr);
-    const int file_size = downloader.get_file_size();
-    if (file_size <= 0)
+    Downloader downloader(SupportProtocol::Http);
+    bool r = downloader.download(resource_path.c_str(), data);
+
+    if (r)
     {
-        Logger("unexpected file size {} quit now ... ", file_size);
-        return -1;
-    }
-
-    size_t thread_num = std::min<size_t>(
-        std::thread::hardware_concurrency(),
-        std::max<size_t>(1, file_size / DownloadTaskArg::fixed_block_size));
-    thread_num = 2;
-    Logger("file size is {}, use {} threads to accerlate download", file_size,
-           thread_num);
-
-    const size_t average_task_load = file_size / thread_num;
-    std::vector<uint8_t> file(file_size, 0);
-
-    DownloadTaskArg::file_size = file_size;
-    DownloadTaskArg::resource_path = resource_path;
-    Progress global_progress(
-        file_size, std::make_shared<std::atomic_size_t>(0),
-        std::make_shared<std::atomic_size_t>(0),
-        std::make_shared<std::atomic<time_t>>(time(nullptr)));
-
-    std::vector<std::thread> thread_pool;
-    for (size_t i = 0; i < thread_num; i++)
-    {
-        size_t begin = i * average_task_load;
-        size_t end = std::min<size_t>(begin + average_task_load, file_size);
-        uint8_t *buffer = file.data() + begin;
-        thread_pool.emplace_back(
-            download_task,
-            DownloadTaskArg{begin, end, buffer, global_progress});
-    }
-
-    for (auto &&thread : thread_pool)
-        if (thread.joinable())
-            thread.join();
-
-    if (not DownloadTaskArg::error.load(std::memory_order_relaxed))
-    {
-        bool success = verify_md5(file, md5);
+        bool success = md5::verify(data, md5);
         if (success)
         {
-            Logger("download {} bytes success :)", file_size);
+            Logger("download {} bytes success :)", data.size());
             return 0;
         }
     }
 
-    Logger("download {} bytes failed :(", file_size);
+    Logger("download {} bytes failed :(", data.size());
     return -1;
 }

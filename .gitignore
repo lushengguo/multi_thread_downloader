@@ -1,3 +1,4 @@
 client 
 build
 .vscode
+*.o

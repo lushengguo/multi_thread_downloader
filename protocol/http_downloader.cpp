@@ -1,5 +1,7 @@
 #include "http_downloader.h"
-#include "log.h"
+#include "../log.h"
+#include <algorithm>
+#include <cstddef>
 #include <curl/curl.h>
 #include <functional>
 #include <iostream>
@@ -7,8 +9,9 @@
 #include <regex>
 #include <string.h>
 
-HttpDownloader::HttpDownloader(const char *request_path, Progress *progress)
-    : request_path_(request_path), progress_(progress)
+HttpDownloader::HttpDownloader(const char *request_path,
+               std::function<void(size_t)> progress_printer)
+    : request_path_(request_path), printer_(progress_printer)
 {
 }
 
@@ -45,11 +48,9 @@ int HttpDownloader::download(size_t bytes_from, size_t bytes_download,
     }
 
     WriteData write_data{buffer, 0};
-    if (progress_)
-    {
-        write_data.progress_printer =
-            std::bind(&Progress::feed, progress_, std::placeholders::_1);
-    }
+    if (printer_)
+        write_data.progress_printer = printer_;
+
     curl_easy_setopt(curl, CURLOPT_URL, request_path_);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &write_data);
